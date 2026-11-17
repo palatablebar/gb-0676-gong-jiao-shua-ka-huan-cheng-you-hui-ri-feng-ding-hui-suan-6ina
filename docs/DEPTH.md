@@ -31,11 +31,17 @@
 | TRAP-11 | 混合偏移 | 落错版本 | UTC归整 | `app/values.py` | `tests/test_m3.py::test_timezone_equal` |
 | TRAP-23 | 换乘截止点 | 重复优惠 | 截止点排除 | `app/modules/m5_discounts/rules.py` | `tests/test_m5.py::test_exact_window_excluded` |
 | TRAP-25 | 票价重叠 | 随意取版 | 冲突隔离 | `app/modules/m3_fares/rules.py` | `tests/test_m3.py::test_overlap_rejected` |
+| TRAP-27 | 晚到撤销 | 改写已清分行 | 原账只读，另记更正账并整日重算受影响卡日 | `app/corrections.py`、`app/store.py` | `tests/test_corrections.py::test_original_clearing_is_immutable` |
+| TRAP-28 | 撤销后的换乘/封顶联动 | 只冲减被撤销行 | 重排同卡同日锚点与封顶，调整分录逐行给出原因 | `app/corrections.py` | `tests/test_corrections.py::test_correction_recomputes_whole_card_day` |
+| TRAP-29 | 更正重试 | 重复冲减 | 业务效果幂等键，返回原更正单 | `app/store.py` | `tests/test_corrections.py::test_repeat_correction_does_not_double_post` |
+| TRAP-30 | 未复核更正放行 | 提前归档 | 日终口径统一，未复核/未对平 409 | `app/corrections.py`、`app/modules/m7_settlement/rules.py` | `tests/test_corrections.py::test_unreviewed_correction_blocks_archive` |
 
 ## 对账规则
 
 输入原始逻辑行=最终采纳来源行+隔离来源行+重复行+空白行+分段表头。派生记录用_sources保存完整来源，因此分组不丢行。业务预期合计与上游申报合计之差等于逐行差异之和。结果按输入摘要、规则版本及参数产生唯一批次，事务写入；同源重跑只复用已有批次。
 
+晚到撤销/补录不进入原批次重算，而是作为更正账追加：受影响卡日整日重排换乘锚点与封顶，未受影响卡日结转，调整分录之和与两版指标之差互为校验。日终只认末版账册；原清分 stages、更正前的 original_basis 与逐行调整原因同时可查，任一更正未复核或调整未对平时日结归档一律 409。
+
 ## 已知不覆盖
 
-4MB以上文件需预先按业务键分批；不模拟生产支付与外部回调。人工复核只变更批次状态，不改写原始记录。
+4MB以上文件需预先按业务键分批；不模拟生产支付与外部回调。人工复核只变更批次状态，不改写原始记录；更正只追加调整账，不回写已清分行。更正不处理跨日换乘锚点（本项目规则本身限定在同一业务日内裁决）。

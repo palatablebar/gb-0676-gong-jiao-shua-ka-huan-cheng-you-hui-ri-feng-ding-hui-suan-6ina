@@ -6,6 +6,11 @@ def evaluate(rows,context):
     stages=[v for v in context.values() if isinstance(v,dict) and "metrics" in v]
     balances=[s["metrics"]["balanced"] for s in stages if "balanced" in s["metrics"]]
     if balances and not all(balances): raise DomainError("UNBALANCED","来源行未对平，不能归档")
+    pending=[item for item in context.get("corrections",[]) if item["decision"]!="已复核"]
+    if pending: raise DomainError("CORRECTION_PENDING","存在未复核的更正，不能归档")
+    if context.get("blocked"): raise DomainError("CORRECTION_PENDING","末笔更正未复核，不能归档")
+    unbalanced=[item for item in context.get("corrections",[]) if not item["balanced"]]
+    if unbalanced: raise DomainError("CORRECTION_UNBALANCED","更正调整未对平，不能归档")
     ids=[str(r.get("event_id",r.get("_line",""))) for r in rows]
     if len(ids)!=len(set(ids)): raise DomainError("ARCHIVE_DUPLICATE","归档业务键重复")
     encoded=json.dumps(rows,ensure_ascii=False,sort_keys=True,default=str).encode()

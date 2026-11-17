@@ -43,8 +43,31 @@ def create_app():
     @application.get("/api/runs/<run_id>/archive")
     def archive(run_id):
         from app.archive import build_archive
-        run=store.get(run_id)
+        run=store.get(run_id,include_rows=True)
+        if not run["settlement"]["ready"]:
+            blocking=run["settlement"]["blocking"] or [{"code":"NOT_READY","message":"日终未完成对账"}]
+            raise DomainError("SETTLEMENT_BLOCKED","日终未完成对账，不能导出归档："+blocking[0]["message"],409)
         return application.response_class(build_archive(run),mimetype="text/csv",headers={"Content-Disposition":'attachment; filename="evidence.csv"'})
+    @application.get("/api/runs/<run_id>/corrections")
+    def corrections_list(run_id):
+        run=store.get(run_id)
+        return {"corrections":run["corrections"],"settlement":run["settlement"]}
+    @application.post("/api/runs/<run_id>/corrections")
+    def correction_create(run_id):
+        p=request.get_json(silent=True)
+        if not isinstance(p,dict): raise DomainError("BAD_BODY","请求需要对象")
+        void=p.get("void",[])
+        if not isinstance(void,list) or any(not isinstance(x,str) for x in void): raise DomainError("BAD_CORRECTION","撤销内容需要事件号列表")
+        params=p.get("parameters",{})
+        if not isinstance(params,dict): raise DomainError("BAD_PARAMETERS","参数需要对象")
+        return store.correct(run_id,p.get("version"),void,p.get("add"),p.get("reason"),params)
+    @application.get("/api/runs/<run_id>/corrections/<correction_id>")
+    def correction_detail(run_id,correction_id): return store.correction_detail(run_id,correction_id)
+    @application.post("/api/runs/<run_id>/corrections/<correction_id>/review")
+    def correction_review(run_id,correction_id):
+        p=request.get_json(silent=True) or {}
+        if not isinstance(p.get("version"),int): raise DomainError("BAD_VERSION","请提供版本号")
+        return store.review_correction(run_id,correction_id,p["version"],p.get("decision"))
     for index,(slug,title) in enumerate(MODULES,1):
         module=importlib.import_module(f"app.modules.m{index}_{slug}.handler")
         application.register_blueprint(module.bp)
